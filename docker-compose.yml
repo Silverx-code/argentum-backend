@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  # ─── FastAPI Backend ──────────────────────────────────────────────────────────
+  api:
+    build: .
+    container_name: argentum_api
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_ENV=development
+      - DATABASE_URL=postgresql+asyncpg://postgres:argentum@db:5432/argentum_db
+      - SYNC_DATABASE_URL=postgresql://postgres:argentum@db:5432/argentum_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./chroma_store:/app/chroma_store
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+
+  # ─── Celery Worker ────────────────────────────────────────────────────────────
+  worker:
+    build: .
+    container_name: argentum_worker
+    environment:
+      - APP_ENV=development
+      - DATABASE_URL=postgresql+asyncpg://postgres:argentum@db:5432/argentum_db
+      - SYNC_DATABASE_URL=postgresql://postgres:argentum@db:5432/argentum_db
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - .:/app
+    command: celery -A app.core.celery_app worker --loglevel=info -Q file_processing
+    restart: unless-stopped
+
+  # ─── PostgreSQL ───────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: argentum_db
+    environment:
+      POSTGRES_DB: argentum_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: argentum
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ─── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: argentum_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
