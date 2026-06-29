@@ -13,13 +13,21 @@ import structlog
 
 logger = structlog.get_logger()
 
-# Synchronous engine for Celery worker
-sync_engine = create_engine(settings.SYNC_DATABASE_URL)
+# Lazily-created sync engine — only initialised when Celery worker runs,
+# so the API can import this module at startup without a DB connection.
+_sync_engine = None
+
+
+def _get_sync_engine():
+    global _sync_engine
+    if _sync_engine is None:
+        _sync_engine = create_engine(settings.SYNC_DATABASE_URL)
+    return _sync_engine
 
 
 def get_sync_db():
     from sqlalchemy.orm import sessionmaker
-    SessionLocal = sessionmaker(bind=sync_engine)
+    SessionLocal = sessionmaker(bind=_get_sync_engine())
     return SessionLocal()
 
 
@@ -148,7 +156,13 @@ def process_uploaded_file(self, file_id: str, user_id: str):
 
 
 def _download_file(file_url: str) -> bytes:
-    """Download file bytes from S3 URL."""
+    """Read file bytes from local storage (local:// marker) or an S3/HTTP URL."""
+    if file_url.startswith("local://"):
+        from pathlib import Path
+        rel_key = file_url.replace("local://", "", 1)
+        path = Path(settings.LOCAL_STORAGE_DIR) / rel_key
+        return path.read_bytes()
+
     response = httpx.get(file_url, timeout=60.0)
     response.raise_for_status()
     return response.content

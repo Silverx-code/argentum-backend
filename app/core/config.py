@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "argentum-uploads"
 
+    # Local file storage (used when S3 credentials are absent/placeholder)
+    LOCAL_STORAGE_DIR: str = "/app/uploads"
+
     # ChromaDB
     CHROMA_PERSIST_DIR: str = "./chroma_store"
 
@@ -55,6 +58,12 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    @property
+    def use_local_storage(self) -> bool:
+        """Fall back to local-disk storage when S3 creds are missing or placeholders."""
+        key = self.AWS_ACCESS_KEY_ID.strip()
+        return not key or key.startswith("your-")
 
     class Config:
         env_file = ".env"

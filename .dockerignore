@@ -1,0 +1,11 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+.git/
+chroma_store/
+uploads/
+*.log
+.env.example
+.pytest_cache/
+.mypy_cache/

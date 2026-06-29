@@ -71,6 +71,50 @@ class S3StorageService:
             raise RuntimeError(f"Could not generate presigned URL: {e}")
 
 
+class LocalStorageService:
+    """Filesystem-backed storage used when S3 credentials are absent.
+
+    Files are written under ``settings.LOCAL_STORAGE_DIR`` and referenced by a
+    ``local://<user_id>/<uuid><ext>`` marker URL. Because the API and Celery
+    worker share the same bind-mounted volume (``.:/app`` in docker-compose),
+    the worker can read back what the API wrote.
+    """
+
+    def __init__(self):
+        self.root = Path(settings.LOCAL_STORAGE_DIR)
+
+    async def upload_file(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        user_id: str,
+        content_type: str,
+    ) -> str:
+        ext = Path(filename).suffix.lower()
+        rel_key = f"{user_id}/{uuid.uuid4()}{ext}"
+        dest = self.root / rel_key
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(file_bytes)
+        logger.info("File written to local storage", path=str(dest), user_id=user_id)
+        return f"local://{rel_key}"
+
+    async def delete_file(self, file_url: str) -> bool:
+        try:
+            rel_key = file_url.replace("local://", "", 1)
+            path = self.root / rel_key
+            if path.exists():
+                path.unlink()
+            logger.info("File deleted from local storage", key=rel_key)
+            return True
+        except OSError as e:
+            logger.error("Local delete failed", error=str(e))
+            return False
+
+    async def get_presigned_url(self, file_url: str, expiry: int = 3600) -> str:
+        # No signing needed for local storage — the marker is the reference.
+        return file_url
+
+
 CONTENT_TYPE_MAP = {
     ".pdf": "application/pdf",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -88,4 +132,6 @@ def get_content_type(filename: str) -> str:
     return CONTENT_TYPE_MAP.get(ext, "application/octet-stream")
 
 
-storage_service = S3StorageService()
+storage_service = (
+    LocalStorageService() if settings.use_local_storage else S3StorageService()
+)
