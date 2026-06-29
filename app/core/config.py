@@ -1,5 +1,4 @@
 from pydantic_settings import BaseSettings
-from pydantic import field_validator
 from typing import List
 from functools import lru_cache
 
@@ -14,8 +13,12 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
 
     # Database
-    DATABASE_URL: str
-    SYNC_DATABASE_URL: str
+    # DATABASE_URL is auto-injected by Render as postgresql:// (sync format).
+    # ASYNC_DATABASE_URL is set manually as postgresql+asyncpg:// for SQLAlchemy async engine.
+    # Locally both can be set in .env as before.
+    DATABASE_URL: str = ""        # injected by Render (postgresql://...) or set in .env
+    ASYNC_DATABASE_URL: str = ""  # must be postgresql+asyncpg://...
+    SYNC_DATABASE_URL: str = ""   # used by Alembic (postgresql://...)
 
     # Redis / Celery
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -52,6 +55,40 @@ class Settings(BaseSettings):
 
     # CORS
     ALLOWED_ORIGINS: str = "http://localhost:3000"
+
+    @property
+    def async_db_url(self) -> str:
+        """
+        Returns the correct async database URL for SQLAlchemy.
+        Priority:
+          1. ASYNC_DATABASE_URL if explicitly set
+          2. DATABASE_URL converted to asyncpg format (Render auto-inject)
+          3. SYNC_DATABASE_URL converted to asyncpg format (local .env fallback)
+        """
+        if self.ASYNC_DATABASE_URL:
+            return self.ASYNC_DATABASE_URL
+        base = self.DATABASE_URL or self.SYNC_DATABASE_URL
+        return (
+            base
+            .replace("postgres://", "postgresql+asyncpg://", 1)
+            .replace("postgresql://", "postgresql+asyncpg://", 1)
+        )
+
+    @property
+    def sync_db_url(self) -> str:
+        """
+        Returns the correct sync database URL for Alembic / psycopg2.
+        Priority:
+          1. SYNC_DATABASE_URL if explicitly set
+          2. DATABASE_URL (Render auto-inject is already sync format)
+        """
+        if self.SYNC_DATABASE_URL:
+            return self.SYNC_DATABASE_URL
+        return (
+            self.DATABASE_URL
+            .replace("postgresql+asyncpg://", "postgresql://", 1)
+            .replace("postgres://", "postgresql://", 1)
+        )
 
     @property
     def allowed_origins_list(self) -> List[str]:

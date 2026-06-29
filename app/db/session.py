@@ -6,7 +6,7 @@ import structlog
 logger = structlog.get_logger()
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.async_db_url,   # uses ASYNC_DATABASE_URL or converts DATABASE_URL automatically
     echo=settings.APP_ENV == "development",
     pool_pre_ping=True,
     pool_size=10,
