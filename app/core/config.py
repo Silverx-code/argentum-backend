@@ -32,17 +32,19 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str = ""
     FIREBASE_CREDENTIALS_PATH: str = "firebase-service-account.json"
 
-    # AWS S3
+    # AWS S3 — leave blank to use local storage instead
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
     S3_BUCKET_NAME: str = "argentum-uploads"
 
-    # Local file storage (used when S3 credentials are absent/placeholder)
-    LOCAL_STORAGE_DIR: str = "/app/uploads"
+    # Local file storage
+    # In Docker this maps to the persistent /app/data volume.
+    # Locally (dev) it falls back to ./uploads next to the project root.
+    LOCAL_STORAGE_DIR: str = "/app/data/uploads"
 
-    # ChromaDB
-    CHROMA_PERSIST_DIR: str = "./chroma_store"
+    # ChromaDB — also lives on the persistent /app/data volume in Docker.
+    CHROMA_PERSIST_DIR: str = "/app/data/chroma_store"
 
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60

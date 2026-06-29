@@ -1,0 +1,72 @@
+# render.yaml — Render Blueprint
+# Commit this file to your repo root.
+# On Render: New -> Blueprint -> connect your repo -> Render reads this file.
+
+services:
+  - type: web
+    name: argentum-api
+    runtime: docker
+    dockerfilePath: ./argentum-backend/Dockerfile
+    dockerContext: ./argentum-backend
+    plan: free          # change to starter ($7/mo) for always-on
+    region: oregon      # closest to Nigeria that Render offers on free tier
+    healthCheckPath: /health
+
+    # Persistent disk for uploads + ChromaDB
+    # Note: disk is NOT available on Render's free tier.
+    # You have two options:
+    #   1. Upgrade to starter plan ($7/mo) and uncomment the disk block below
+    #   2. Use free tier but uploads won't persist between deploys (OK for testing)
+    #
+    # disk:
+    #   name: argentum-data
+    #   mountPath: /app/data
+    #   sizeGB: 1
+
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_NAME
+        value: Argentum AI
+      - key: SECRET_KEY
+        generateValue: true       # Render auto-generates a secure random value
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "60"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "30"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: argentum-db
+          property: connectionString  # Render injects this automatically
+      - key: SYNC_DATABASE_URL
+        fromDatabase:
+          name: argentum-db
+          property: connectionString
+      - key: REDIS_URL
+        value: redis://localhost:6379/0   # replace with Render Redis URL if added
+      - key: OPENAI_API_KEY
+        sync: false               # you'll paste this manually in Render dashboard
+      - key: OPENAI_QUIZ_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_ADVANCED_MODEL
+        value: gpt-4o
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: FIREBASE_PROJECT_ID
+        value: argentum-1b6c4
+      - key: FIREBASE_CREDENTIALS_PATH
+        value: /app/firebase-service-account.json
+      - key: UPLOAD_DIR
+        value: /app/data/uploads
+      - key: UPLOAD_SIZE_LIMIT_MB
+        value: "25"
+      - key: CHROMA_PERSIST_DIR
+        value: /app/data/chroma_store
+      - key: ALLOWED_ORIGINS
+        value: http://localhost:5000   # update with your real domain after deploy
+
+databases:
+  - name: argentum-db
+    plan: free                    # 500MB PostgreSQL, free forever on Render
+    databaseName: argentum_db
+    user: postgres

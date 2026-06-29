@@ -20,9 +20,22 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app
 COPY . .
 
-# Create storage dir for ChromaDB
-RUN mkdir -p /app/chroma_store
+# Create directories for persistent data.
+# On Render, /app/data is mapped to a persistent disk volume so
+# uploaded files and ChromaDB embeddings survive container restarts.
+RUN mkdir -p /app/data/uploads \
+    && mkdir -p /app/data/chroma_store
+
+# Non-root user for security
+RUN adduser --disabled-password --gecos "" appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# workers=1 keeps ChromaDB in-process consistent.
+# Increase to 2-4 only after migrating ChromaDB to a hosted service.
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--workers", "1"]

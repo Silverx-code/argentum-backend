@@ -1,84 +1,95 @@
 version: "3.9"
 
 services:
-  # ─── FastAPI Backend ──────────────────────────────────────────────────────────
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: argentum_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
   api:
     build: .
-    container_name: argentum_api
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
-      - APP_ENV=development
-      - DATABASE_URL=postgresql+asyncpg://postgres:argentum@db:5432/argentum_db
-      - SYNC_DATABASE_URL=postgresql://postgres:argentum@db:5432/argentum_db
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-    env_file:
-      - .env
+      # App
+      APP_NAME: Argentum AI
+      APP_ENV: development
+      SECRET_KEY: ${SECRET_KEY}
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      REFRESH_TOKEN_EXPIRE_DAYS: 30
+
+      # Database — points to the db service above
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/argentum_db
+      SYNC_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/argentum_db
+
+      # Redis — points to the redis service above
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+
+      # OpenAI
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_QUIZ_MODEL: gpt-4o-mini
+      OPENAI_ADVANCED_MODEL: gpt-4o
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+
+      # Firebase
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID}
+      FIREBASE_CREDENTIALS_PATH: /app/firebase-service-account.json
+
+      # Local file storage (no S3)
+      UPLOAD_DIR: /app/data/uploads
+      UPLOAD_SIZE_LIMIT_MB: 25
+
+      # ChromaDB — persisted to the data volume
+      CHROMA_PERSIST_DIR: /app/data/chroma_store
+
+      # CORS — update with your Flutter web domain when deploying
+      ALLOWED_ORIGINS: http://localhost:5000,http://localhost:3000,http://10.0.2.2:8000
+
+    volumes:
+      # Persistent storage for uploads and ChromaDB
+      - app_data:/app/data
+      # Mount Firebase credentials (keep out of image)
+      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
+
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - .:/app
-      - ./chroma_store:/app/chroma_store
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    restart: unless-stopped
 
-  # ─── Celery Worker ────────────────────────────────────────────────────────────
-  worker:
-    build: .
-    container_name: argentum_worker
-    environment:
-      - APP_ENV=development
-      - DATABASE_URL=postgresql+asyncpg://postgres:argentum@db:5432/argentum_db
-      - SYNC_DATABASE_URL=postgresql://postgres:argentum@db:5432/argentum_db
-      - REDIS_URL=redis://redis:6379/0
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/1
-    env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - .:/app
-    command: celery -A app.core.celery_app worker --loglevel=info -Q file_processing
-    restart: unless-stopped
-
-  # ─── PostgreSQL ───────────────────────────────────────────────────────────────
-  db:
-    image: postgres:16-alpine
-    container_name: argentum_db
-    environment:
-      POSTGRES_DB: argentum_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: argentum
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  # ─── Redis ────────────────────────────────────────────────────────────────────
-  redis:
-    image: redis:7-alpine
-    container_name: argentum_redis
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
+    # Run migrations before starting the server
+    command: >
+      sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
 
 volumes:
   postgres_data:
+  app_data:
